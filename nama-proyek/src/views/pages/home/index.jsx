@@ -1,20 +1,38 @@
 import { useState, useEffect } from 'react';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
 import { getUsers, createUser, updateUser, deleteUser } from '../../../services/userService';
 
-export default function App() {
+const userSchema = z.object({
+  name: z
+    .string()
+    .min(3, 'Nama lengkap minimal 3 karakter')
+    .max(50, 'Nama maksimal 50 karakter'),
+  email: z
+    .string()
+    .min(1, 'Email wajib diisi')
+    .email('Format email tidak valid (contoh: nama@domain.com)'),
+});
+
+export default function HomePage() {
+  // Semua urusan input, validasi, dan loading submit ditangani oleh useForm
+  const { register, handleSubmit, reset, formState: { errors, isSubmitting }, } = useForm({
+    resolver: zodResolver(userSchema),
+    mode: 'onBlur',
+    defaultValues: { name: '', email: '' },
+  });
+
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
-
-  const [formData, setFormData] = useState({ name: '', email: '' });
   const [editingId, setEditingId] = useState(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [deletingId, setDeletingId] = useState(null); // Penanda ID yang sedang dihapus
+  const [deletingId, setDeletingId] = useState(null);
 
   // 1. Ambil data awal (GET)
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const data = await getUsers();
+        const data = await getUsers({_limit: 5});
         setUsers(data);
       } catch (error) {
         console.error('Gagal mengambil data:', error);
@@ -25,56 +43,44 @@ export default function App() {
     fetchData();
   }, []);
 
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
-  };
-
+  // 2. Isi form otomatis memakai reset() saat tombol Edit diklik
   const handleEditClick = (user) => {
     setEditingId(user.id);
-    setFormData({ name: user.name, email: user.email });
+    reset({ name: user.name, email: user.email });
   };
 
+  // Batal edit & kosongkan form
   const handleCancelEdit = () => {
     setEditingId(null);
-    setFormData({ name: '', email: '' });
+    reset({ name: '', email: '' });
   };
 
-  // 2. Tambah (POST) & Edit (PATCH)
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setIsSubmitting(true);
-
+  // 3. Fungsi ini otomatis dijalankan oleh handleSubmit(onSubmit) jika validasi Zod lolos
+  const onSubmit = async (data) => {
     try {
       if (editingId) {
-        const updatedUser = await updateUser(editingId, formData);
+        const updatedUser = await updateUser(editingId, data);
         setUsers((prev) =>
           prev.map((user) => (user.id === editingId ? { ...user, ...updatedUser } : user))
         );
         setEditingId(null);
       } else {
-        const createdUser = await createUser(formData);
+        const createdUser = await createUser(data);
         setUsers((prev) => [createdUser, ...prev]);
       }
-      setFormData({ name: '', email: '' });
+      reset({ name: '', email: '' });
     } catch (error) {
       alert('Gagal menyimpan data.');
-    } finally {
-      setIsSubmitting(false);
     }
   };
 
-  // 3. Hapus Data (DELETE)
-  const handleDelete = async (id, name) => {
-
+  // 4. Hapus Data (DELETE)
+  const handleDelete = async (id) => {
     setDeletingId(id);
-
     try {
       await deleteUser(id);
-      // Hapus item dari state layar menggunakan .filter()
       setUsers((prev) => prev.filter((user) => user.id !== id));
 
-      // Jika item yang dihapus sedang dalam mode edit, reset formnya
       if (editingId === id) {
         handleCancelEdit();
       }
@@ -89,31 +95,39 @@ export default function App() {
 
   return (
     <div className="p-6 max-w-md mx-auto space-y-6">
-      {/* Form Dinamis (POST & PATCH) */}
-      <form onSubmit={handleSubmit} className="p-4 bg-white border border-slate-200 rounded-lg shadow-sm space-y-3">
+      {/* Form Tervalidasi Zod + React Hook Form */}
+      <form onSubmit={handleSubmit(onSubmit)} className="p-4 bg-white border border-slate-200 rounded-lg shadow-sm space-y-3">
         <h2 className="text-lg font-bold text-slate-800">
           {editingId ? 'Edit Pengguna' : 'Tambah Pengguna'}
         </h2>
 
-        <input
-          type="text"
-          name="name"
-          value={formData.name}
-          onChange={handleChange}
-          placeholder="Nama lengkap"
-          className="w-full border border-slate-300 p-2 rounded focus:outline-blue-500"
-          required
-        />
+        <div>
+          <input
+            type="text"
+            placeholder="Nama lengkap"
+            className={`w-full border p-2 rounded focus:outline-none ${
+              errors.name ? 'border-red-500' : 'border-slate-300 focus:border-blue-500'
+            }`}
+            {...register('name')}
+          />
+          {errors.name && (
+            <p className="text-xs text-red-600 mt-1">{errors.name.message}</p>
+          )}
+        </div>
 
-        <input
-          type="email"
-          name="email"
-          value={formData.email}
-          onChange={handleChange}
-          placeholder="Alamat email"
-          className="w-full border border-slate-300 p-2 rounded focus:outline-blue-500"
-          required
-        />
+        <div>
+          <input
+            type="text"
+            placeholder="Alamat email"
+            className={`w-full border p-2 rounded focus:outline-none ${
+              errors.email ? 'border-red-500' : 'border-slate-300 focus:border-blue-500'
+            }`}
+            {...register('email')}
+          />
+          {errors.email && (
+            <p className="text-xs text-red-600 mt-1">{errors.email.message}</p>
+          )}
+        </div>
 
         <div className="flex gap-2">
           <button
@@ -153,14 +167,18 @@ export default function App() {
                 </div>
 
                 <div className="flex gap-1.5">
-                  <button className="text-sm bg-amber-100 hover:bg-amber-200 text-amber-800 px-3 py-1 rounded font-medium disabled:opacity-50"
+                  <button
+                    type="button"
+                    className="text-sm bg-amber-100 hover:bg-amber-200 text-amber-800 px-3 py-1 rounded font-medium disabled:opacity-50"
                     onClick={() => handleEditClick(user)}
                     disabled={deletingId === user.id}
                   >
                     Edit
                   </button>
-                  <button className="text-sm bg-red-100 hover:bg-red-200 text-red-700 px-3 py-1 rounded font-medium disabled:opacity-50"
-                    onClick={() => handleDelete(user.id, user.name)}
+                  <button
+                    type="button"
+                    className="text-sm bg-red-100 hover:bg-red-200 text-red-700 px-3 py-1 rounded font-medium disabled:opacity-50"
+                    onClick={() => handleDelete(user.id)}
                     disabled={deletingId === user.id}
                   >
                     {deletingId === user.id ? '...' : 'Hapus'}

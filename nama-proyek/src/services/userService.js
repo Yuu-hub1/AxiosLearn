@@ -1,18 +1,6 @@
-import api from "./api";
+import { httpClient } from "./httpClient";
 
-export const getUsers = async () => {
-  const response = await api.get('/users?_limit=5');
-  return response.data;
-};
-export const createUser = async (userData) => {
-  const response = await api.post('/users', userData);
-  return response.data;
-};
-export const updateUser = async (id, userData) => {
-  const response = await api.put(`/users/${id}`, userData);
-  return response.data;
-};
-export const deleteUser = async (id) => {
-  const response = await api.delete(`/users/${id}`);
-  return response.data;
-};
+export const getUsers = (params) => httpClient.get('/users', params);
+export const createUser = (data) => httpClient.post('/users', data);
+export const updateUser = (id, data) => httpClient.patch(`/users/${id}`, data);
+export const deleteUser = (id) => httpClient.delete(`/users/${id}`);
