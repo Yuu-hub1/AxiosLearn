@@ -3,6 +3,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { getUsers, createUser, updateUser, deleteUser } from '../../../services/userService';
+import { useDebounce } from '../../shared/hooks/useDebounce';
 
 const userSchema = z.object({
   name: z
@@ -16,8 +17,7 @@ const userSchema = z.object({
 });
 
 export default function HomePage() {
-  // Semua urusan input, validasi, dan loading submit ditangani oleh useForm
-  const { register, handleSubmit, reset, formState: { errors, isSubmitting }, } = useForm({
+  const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm({
     resolver: zodResolver(userSchema),
     mode: 'onBlur',
     defaultValues: { name: '', email: '' },
@@ -28,11 +28,26 @@ export default function HomePage() {
   const [editingId, setEditingId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
 
-  // 1. Ambil data awal (GET)
+  // State Pencarian (Debounce + Submit)
+  const [searchTerm, setSearchTerm] = useState('');
+  const [activeQuery, setActiveQuery] = useState('');
+  const debouncedSearch = useDebounce(searchTerm, 500); // Diubah ke 500ms agar lebih responsif
+
+  // State Filtering (Kategori Kota)
+  const [selectedCity, setSelectedCity] = useState('ALL');
+
+  // Sinkronkan hasil debounce ke activeQuery secara otomatis
+  useEffect(() => {
+    setActiveQuery(debouncedSearch);
+  }, [debouncedSearch]);
+
+  // 1. Ambil data dari API setiap kali activeQuery berubah
   useEffect(() => {
     const fetchData = async () => {
+      setLoading(true);
       try {
-        const data = await getUsers({_limit: 5});
+        const params = activeQuery ? { q: activeQuery } : {};
+        const data = await getUsers(params);
         setUsers(data);
       } catch (error) {
         console.error('Gagal mengambil data:', error);
@@ -41,21 +56,40 @@ export default function HomePage() {
       }
     };
     fetchData();
-  }, []);
+  }, [activeQuery]);
 
-  // 2. Isi form otomatis memakai reset() saat tombol Edit diklik
+  // Ekstrak daftar kota unik dari data users untuk isi dropdown
+  const uniqueCities = ['ALL', ...new Set(users.map((u) => u.address?.city).filter(Boolean))];
+
+  // Saring data berdasarkan kota yang dipilih (Client-side Filtering)
+  const filteredUsers = users.filter((user) => {
+    if (selectedCity === 'ALL') return true;
+    return user.address?.city === selectedCity;
+  });
+
+  // Trigger langsung saat Enter / tombol Cari ditekan
+  const handleSearch = (e) => {
+    e.preventDefault();
+    setActiveQuery(searchTerm);
+  };
+
+  // Reset pencarian & filter sekaligus
+  const handleResetAll = () => {
+    setSearchTerm('');
+    setActiveQuery('');
+    setSelectedCity('ALL');
+  };
+
   const handleEditClick = (user) => {
     setEditingId(user.id);
     reset({ name: user.name, email: user.email });
   };
 
-  // Batal edit & kosongkan form
   const handleCancelEdit = () => {
     setEditingId(null);
     reset({ name: '', email: '' });
   };
 
-  // 3. Fungsi ini otomatis dijalankan oleh handleSubmit(onSubmit) jika validasi Zod lolos
   const onSubmit = async (data) => {
     try {
       if (editingId) {
@@ -74,7 +108,6 @@ export default function HomePage() {
     }
   };
 
-  // 4. Hapus Data (DELETE)
   const handleDelete = async (id) => {
     setDeletingId(id);
     try {
@@ -91,7 +124,7 @@ export default function HomePage() {
     }
   };
 
-  if (loading) return <p className="p-6 text-slate-500">Memuat data...</p>;
+  const isFilterActive = searchTerm !== '' || selectedCity !== 'ALL';
 
   return (
     <div className="p-6 max-w-md mx-auto space-y-6">
@@ -110,9 +143,7 @@ export default function HomePage() {
             }`}
             {...register('name')}
           />
-          {errors.name && (
-            <p className="text-xs text-red-600 mt-1">{errors.name.message}</p>
-          )}
+          {errors.name && <p className="text-xs text-red-600 mt-1">{errors.name.message}</p>}
         </div>
 
         <div>
@@ -124,9 +155,7 @@ export default function HomePage() {
             }`}
             {...register('email')}
           />
-          {errors.email && (
-            <p className="text-xs text-red-600 mt-1">{errors.email.message}</p>
-          )}
+          {errors.email && <p className="text-xs text-red-600 mt-1">{errors.email.message}</p>}
         </div>
 
         <div className="flex gap-2">
@@ -152,18 +181,71 @@ export default function HomePage() {
         </div>
       </form>
 
-      {/* Daftar Data */}
+      {/* Baris Pencarian & Filter Kota */}
+      <div className="space-y-2">
+        <form onSubmit={handleSearch} className="flex gap-2">
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Cari pengguna..."
+            className="flex-1 border border-slate-300 p-2 rounded-lg focus:outline-blue-500"
+          />
+          <button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium">
+            Cari
+          </button>
+        </form>
+
+        <div className="flex items-center justify-between gap-2">
+          <select
+            value={selectedCity}
+            onChange={(e) => setSelectedCity(e.target.value)}
+            className="flex-1 border border-slate-300 p-2 rounded-lg bg-white text-sm text-slate-700 focus:outline-blue-500"
+          >
+            {uniqueCities.map((city) => (
+              <option key={city} value={city}>
+                {city === 'ALL' ? 'Filter: Semua Kota' : `Kota: ${city}`}
+              </option>
+            ))}
+          </select>
+
+          {isFilterActive && (
+            <button
+              type="button"
+              onClick={handleResetAll}
+              className="bg-red-50 hover:bg-red-100 text-red-600 px-3 py-2 rounded-lg text-sm font-medium transition"
+            >
+              Reset
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Daftar Data (Menggunakan filteredUsers) */}
       <div>
-        <h1 className="text-xl font-bold mb-3 text-slate-800">Daftar Pengguna</h1>
-        {users.length === 0 ? (
-          <p className="text-sm text-slate-500 text-center py-4">Tidak ada data pengguna.</p>
+        <div className="flex justify-between items-center mb-3">
+          <h1 className="text-xl font-bold text-slate-800">Daftar Pengguna</h1>
+          <span className="text-xs text-slate-500">
+            {filteredUsers.length} data
+          </span>
+        </div>
+
+        {loading ? (
+          <p className="text-sm text-slate-500">Memuat data...</p>
+        ) : filteredUsers.length === 0 ? (
+          <p className="text-sm text-slate-500 text-center py-4">Tidak ada data pengguna yang cocok.</p>
         ) : (
           <ul className="space-y-2">
-            {users.map((user) => (
+            {filteredUsers.map((user) => (
               <li key={user.id} className="p-3 bg-slate-100 rounded-lg flex justify-between items-center gap-2">
                 <div>
                   <p className="font-semibold text-slate-800">{user.name}</p>
                   <p className="text-sm text-slate-500">{user.email}</p>
+                  {user.address?.city && (
+                    <span className="inline-block mt-1 text-[11px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-medium">
+                      {user.address.city}
+                    </span>
+                  )}
                 </div>
 
                 <div className="flex gap-1.5">
